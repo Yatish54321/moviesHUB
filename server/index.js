@@ -144,7 +144,7 @@ app.get('/api/search', async (req, res) => {
       const unique = [...new Map(combined.filter(item => item?.id).map(item => [item.id, item])).values()];
       return { page: movieSearch.page || page, total_pages: Math.max(movieSearch.total_pages || 1, multi?.total_pages || 1), results: unique };
     });
-    if (!data) return res.json({ movies: getFallback(query), page: 1, totalPages: 1, source: 'fallback' });
+    if (!data) return res.json({ movies: page === 1 ? getFallback(query) : [], page, totalPages: 1, source: 'fallback' });
     if (!data.results?.length) {
       const fallback = getFallback(query);
       if (fallback.length) return res.json({ movies: fallback, page: 1, totalPages: 1, source: 'fallback', warning: 'No live titles matched, so we added local matches.' });
@@ -153,7 +153,7 @@ app.get('/api/search', async (req, res) => {
     movies.forEach(movie => movieIndex.set(movie.id, movie));
     res.json({ movies, page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
   } catch (error) {
-    res.status(200).json({ movies: getFallback(query), page: 1, totalPages: 1, source: 'fallback', warning: 'Search is temporarily limited. Showing local results.' });
+    res.status(200).json({ movies: page === 1 ? getFallback(query) : [], page, totalPages: 1, source: 'fallback', warning: 'Search is temporarily limited. Showing local results.' });
   }
 });
 
