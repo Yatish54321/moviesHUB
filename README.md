@@ -16,19 +16,19 @@ npm run dev
 
 Open `http://localhost:5173`. The client runs on Vite and proxies `/api` requests to the Node server on port 4000.
 
-The app also runs without a TMDB key using a small curated fallback set. This keeps the experience demonstrable while making the external integration optional during development.
+TMDB is required. The application deliberately never invents or substitutes movie records: if TMDB is unavailable, the UI shows a retryable provider error instead of dummy titles.
 
 ## Approach and architecture
 
 - The React client owns navigation, search state, filters, pagination, loading states, and responsive presentation.
 - The Node/Express server is the only layer that talks to TMDB. It normalizes provider fields into a small application shape (`title`, `overview`, `posterUrl`, `rating`, `genres`, and so on), so the UI is not coupled to TMDB's response format.
 - SQLite stores the wishlist locally in `screenatlas.sqlite`. The current product is intentionally single-user/local-first; the schema can gain a `user_id` column when authentication is introduced.
-- A five-minute in-memory cache reduces duplicate calls when users revisit a page or change their mind quickly. TMDB requests have an eight-second timeout.
+- A five-minute in-memory cache plus a persistent SQLite cache reduces duplicate calls when users revisit a page or change their mind quickly. TMDB requests use bounded timeouts and retries.
 - The client ignores stale responses when a user changes filters quickly. Pagination is explicit via “Load more”, which preserves prior results and avoids rendering thousands of cards at once.
 
 ## API
 
-- `GET /api/discover?page=1&sort=popular&genre=18`
+- `GET /api/discover?page=1&sort=newest&genre=18`
 - `GET /api/search?query=inception&page=1`
 - `GET /api/movies/:id`
 - `GET /api/wishlist`
@@ -45,7 +45,7 @@ Wishlist records store a small snapshot of the movie card rather than depending 
 ## Known limitations
 
 - Wishlist persistence is local to one SQLite database and does not yet have accounts or multi-device sync.
-- The fallback catalogue is intentionally small and exists for degraded-mode development; a production deployment should configure TMDB and likely add a durable distributed cache.
+- The current cache is local SQLite and is suitable for a single-instance deployment; a horizontally scaled deployment should move cache/session concerns to a shared store.
 - The in-memory cache resets when the server restarts.
 - TMDB image URLs are external and the app currently does not provide an image proxy or CDN transformation.
 

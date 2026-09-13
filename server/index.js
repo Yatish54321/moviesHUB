@@ -39,6 +39,8 @@ const CACHE_TTL = 1000 * 60 * 5;
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const IMG = 'https://image.tmdb.org/t/p';
 
+// Kept only as legacy data during migration. API responses must never use this
+// catalogue: users should see TMDB data or a clear retryable provider error.
 const fallbackMovies = [
   { id: 1, title: 'The Quiet Season', overview: 'A chef returns to a windswept island and discovers a community ready to begin again.', posterUrl: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1600&q=85', releaseDate: '2024-09-12', rating: 7.8, genres: ['Drama', 'Romance'], runtime: 112 },
   { id: 2, title: 'After the Signal', overview: 'When a mysterious broadcast reaches Earth, two strangers race across a sleeping continent to find its source.', posterUrl: 'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=1600&q=85', releaseDate: '2023-05-03', rating: 8.2, genres: ['Sci-Fi', 'Thriller'], runtime: 124 },
@@ -94,6 +96,22 @@ function getFallback(query = '', sort = 'popular', genre = '') {
   return items;
 }
 
+function providerUnavailable(res, message = 'TMDB is temporarily unavailable. Please try again in a moment.') {
+  return res.status(503).json({
+    error: message,
+    code: 'TMDB_UNAVAILABLE',
+    retryable: true
+  });
+}
+
+function latestFirst(movies) {
+  return [...movies].sort((a, b) => {
+    const dateOrder = String(b.release_date || b.first_air_date || '').localeCompare(String(a.release_date || a.first_air_date || ''));
+    if (dateOrder !== 0) return dateOrder;
+    return Number(b.vote_average || 0) - Number(a.vote_average || 0);
+  });
+}
+
 async function tmdb(path, params = {}) {
   if (!process.env.TMDB_API_KEY) return null;
   const url = new URL(`${TMDB_BASE}${path}`);
@@ -146,22 +164,18 @@ async function cached(key, loader) {
 
 app.get('/api/discover', async (req, res) => {
   const page = Math.max(1, Number(req.query.page || 1));
-  const sort = req.query.sort || 'popular';
+  const sort = req.query.sort || 'newest';
   const genre = req.query.genre || '';
   const theme = req.query.theme || '';
   const effectiveSort = theme === 'award-winning' ? 'rating' : sort;
   try {
     const data = await cached(`discover:${page}:${effectiveSort}:${genre}:${theme}`, () => tmdb('/discover/movie', { page, sort_by: effectiveSort === 'rating' ? 'vote_average.desc' : effectiveSort === 'newest' ? 'primary_release_date.desc' : 'popularity.desc', 'vote_count.gte': effectiveSort === 'rating' ? (theme ? 500 : 200) : 0, with_genres: genre || undefined, include_adult: 'false' }));
-    if (!data) return res.json({ movies: getFallback('', effectiveSort, genre), page: 1, totalPages: 1, source: 'fallback' });
-    if (!data.results?.length) {
-      const fallback = getFallback('', effectiveSort, genre);
-      if (fallback.length) return res.json({ movies: fallback, page: 1, totalPages: 1, source: 'fallback', warning: 'No live titles matched this collection, so we added a curated selection.' });
-    }
+    if (!data) return providerUnavailable(res);
     const movies = data.results.map(normalize);
     movies.forEach(movie => movieIndex.set(movie.id, movie));
     res.json({ movies, page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
   } catch (error) {
-    res.status(200).json({ movies: getFallback('', effectiveSort, genre), page: 1, totalPages: 1, source: 'fallback', warning: 'Movie service is temporarily unavailable. Showing a curated selection.' });
+    providerUnavailable(res);
   }
 });
 
@@ -191,34 +205,24 @@ app.get('/api/search', async (req, res) => {
       const unique = [...new Map(combined.filter(item => item?.id).map(item => [item.id, item])).values()];
       return { page: movieSearch.page || page, total_pages: Math.max(movieSearch.total_pages || 1, multi?.total_pages || 1), results: unique };
     });
-    if (!data) return res.json({ movies: page === 1 ? getFallback(query) : [], page, totalPages: 1, source: 'fallback' });
-    if (!data.results?.length) {
-      const fallback = getFallback(query);
-      if (fallback.length) return res.json({ movies: fallback, page: 1, totalPages: 1, source: 'fallback', warning: 'No live titles matched, so we added local matches.' });
-    }
-    const movies = data.results.map(normalize);
+    if (!data) return providerUnavailable(res);
+    const movies = latestFirst(data.results || []).map(normalize);
     movies.forEach(movie => movieIndex.set(movie.id, movie));
     res.json({ movies, page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
   } catch (error) {
-    res.status(200).json({ movies: page === 1 ? getFallback(query) : [], page, totalPages: 1, source: 'fallback', warning: 'Search is temporarily limited. Showing local results.' });
+    providerUnavailable(res, 'Search is temporarily unavailable. Please try again in a moment.');
   }
 });
 
 app.get('/api/movies/:id', async (req, res) => {
   try {
     const data = await cached(`movie:${req.params.id}`, () => tmdb(`/movie/${req.params.id}`, { append_to_response: 'credits,videos' }));
-    if (!data) {
-      const movie = fallbackMovies.find(item => item.id === Number(req.params.id));
-      if (!movie) return res.status(404).json({ error: 'Movie not found' });
-      return res.json(movie);
-    }
+    if (!data) return providerUnavailable(res);
     res.json(normalize(data, true));
   } catch (error) {
     const cachedMovie = movieIndex.get(Number(req.params.id));
-    const fallbackMovie = fallbackMovies.find(item => item.id === Number(req.params.id));
     if (cachedMovie) return res.status(200).json({ ...cachedMovie, source: 'cache', warning: 'Live detail data is temporarily unavailable. Showing the latest available summary.' });
-    if (fallbackMovie) return res.status(200).json({ ...fallbackMovie, source: 'fallback', warning: 'Live detail data is temporarily unavailable. Showing a curated summary.' });
-    res.status(502).json({ error: 'Could not load this movie right now.' });
+    providerUnavailable(res, 'Movie details are temporarily unavailable. Please try again in a moment.');
   }
 });
 
