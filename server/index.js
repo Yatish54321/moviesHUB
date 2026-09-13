@@ -96,6 +96,10 @@ app.get('/api/discover', async (req, res) => {
   try {
     const data = await cached(`discover:${page}:${sort}:${genre}`, () => tmdb('/discover/movie', { page, sort_by: sort === 'rating' ? 'vote_average.desc' : sort === 'newest' ? 'primary_release_date.desc' : 'popularity.desc', 'vote_count.gte': sort === 'rating' ? 200 : 0, with_genres: genre || undefined, include_adult: 'false' }));
     if (!data) return res.json({ movies: getFallback('', sort, genre), page: 1, totalPages: 1, source: 'fallback' });
+    if (!data.results?.length) {
+      const fallback = getFallback('', sort, genre);
+      if (fallback.length) return res.json({ movies: fallback, page: 1, totalPages: 1, source: 'fallback', warning: 'No live titles matched this collection, so we added a curated selection.' });
+    }
     res.json({ movies: data.results.map(normalize), page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
   } catch (error) {
     res.status(200).json({ movies: getFallback('', sort, genre), page: 1, totalPages: 1, source: 'fallback', warning: 'Movie service is temporarily unavailable. Showing a curated selection.' });
