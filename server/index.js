@@ -126,13 +126,16 @@ app.get('/api/search', async (req, res) => {
     const data = await cached(`search:${query.toLowerCase()}:${page}`, async () => {
       const movieSearch = await tmdb('/search/movie', { query, page, include_adult: 'false' });
       if (!movieSearch) return null;
-      const combined = [...(movieSearch.results || [])];
       const genreId = Object.entries(genreMap).find(([, name]) => name.toLowerCase() === query.toLowerCase())?.[0];
       if (genreId) {
         const genreSearch = await tmdb('/discover/movie', { with_genres: genreId, sort_by: 'popularity.desc', page, include_adult: 'false' });
-        combined.push(...(genreSearch?.results || []));
+        return { page: genreSearch?.page || page, total_pages: genreSearch?.total_pages || 1, results: genreSearch?.results || [] };
       }
+      // Prefer the provider's movie search when it has results. This prevents
+      // broad person/genre enrichment from polluting a title query (e.g. Spider).
+      if (movieSearch.results?.length) return movieSearch;
       const multi = await tmdb('/search/multi', { query, page, include_adult: 'false' });
+      const combined = [];
       const people = (multi?.results || []).filter(item => item.media_type === 'person').slice(0, 2);
       for (const person of people) {
         const personMovies = await tmdb('/discover/movie', { with_people: person.id, sort_by: 'popularity.desc', page, include_adult: 'false' });
