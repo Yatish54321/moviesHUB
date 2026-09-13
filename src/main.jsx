@@ -4,6 +4,7 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams
 import './styles.css';
 import './polish.css';
 import './theme.css';
+import './detail-fix.css';
 
 const genres = [{ id: '', label: 'All films' }, { id: '28', label: 'Action' }, { id: '12', label: 'Adventure' }, { id: '35', label: 'Comedy' }, { id: '18', label: 'Drama' }, { id: '27', label: 'Horror' }, { id: '878', label: 'Sci-Fi' }, { id: '53', label: 'Thriller' }];
 const fmtDate = date => date ? new Date(date).getFullYear() : '—';

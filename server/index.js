@@ -26,6 +26,7 @@ app.use(cors());
 app.use(express.json());
 
 const cache = new Map();
+const movieIndex = new Map();
 const CACHE_TTL = 1000 * 60 * 5;
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const IMG = 'https://image.tmdb.org/t/p';
@@ -105,7 +106,9 @@ app.get('/api/discover', async (req, res) => {
       const fallback = getFallback('', sort, genre);
       if (fallback.length) return res.json({ movies: fallback, page: 1, totalPages: 1, source: 'fallback', warning: 'No live titles matched this collection, so we added a curated selection.' });
     }
-    res.json({ movies: data.results.map(normalize), page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
+    const movies = data.results.map(normalize);
+    movies.forEach(movie => movieIndex.set(movie.id, movie));
+    res.json({ movies, page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
   } catch (error) {
     res.status(200).json({ movies: getFallback('', sort, genre), page: 1, totalPages: 1, source: 'fallback', warning: 'Movie service is temporarily unavailable. Showing a curated selection.' });
   }
@@ -118,7 +121,9 @@ app.get('/api/search', async (req, res) => {
   try {
     const data = await cached(`search:${query.toLowerCase()}:${page}`, () => tmdb('/search/movie', { query, page, include_adult: 'false' }));
     if (!data) return res.json({ movies: getFallback(query), page: 1, totalPages: 1, source: 'fallback' });
-    res.json({ movies: data.results.map(normalize), page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
+    const movies = data.results.map(normalize);
+    movies.forEach(movie => movieIndex.set(movie.id, movie));
+    res.json({ movies, page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
   } catch (error) {
     res.status(200).json({ movies: getFallback(query), page: 1, totalPages: 1, source: 'fallback', warning: 'Search is temporarily limited. Showing local results.' });
   }
@@ -133,7 +138,13 @@ app.get('/api/movies/:id', async (req, res) => {
       return res.json(movie);
     }
     res.json(normalize(data, true));
-  } catch (error) { res.status(502).json({ error: 'Could not load this movie right now.' }); }
+  } catch (error) {
+    const cachedMovie = movieIndex.get(Number(req.params.id));
+    const fallbackMovie = fallbackMovies.find(item => item.id === Number(req.params.id));
+    if (cachedMovie) return res.status(200).json({ ...cachedMovie, source: 'cache', warning: 'Live detail data is temporarily unavailable. Showing the latest available summary.' });
+    if (fallbackMovie) return res.status(200).json({ ...fallbackMovie, source: 'fallback', warning: 'Live detail data is temporarily unavailable. Showing a curated summary.' });
+    res.status(502).json({ error: 'Could not load this movie right now.' });
+  }
 });
 
 function rowToMovie(row) { return { ...row, genres: JSON.parse(row.genres || '[]') }; }
