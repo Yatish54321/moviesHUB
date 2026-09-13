@@ -1,6 +1,6 @@
-# ScreenAtlas
+# moviesHUB
 
-ScreenAtlas is a responsive movie-discovery product built with React and Node.js. It gives people a way to browse without a specific title in mind, search the TMDB catalogue, filter by genre, change sort order, open a detail view, and keep a persistent wishlist.
+moviesHUB is a responsive movie-discovery product built with React and Node.js. It gives people a way to browse without a specific title in mind, search the TMDB catalogue, filter by genre, change sort order, open a detail view, and keep a persistent wishlist.
 
 ## Run locally
 
@@ -22,7 +22,7 @@ TMDB is required. The application deliberately never invents or substitutes movi
 
 - The React client owns navigation, search state, filters, pagination, loading states, and responsive presentation.
 - The Node/Express server is the only layer that talks to TMDB. It normalizes provider fields into a small application shape (`title`, `overview`, `posterUrl`, `rating`, `genres`, and so on), so the UI is not coupled to TMDB's response format.
-- SQLite stores the wishlist locally in `screenatlas.sqlite`. The current product is intentionally single-user/local-first; the schema can gain a `user_id` column when authentication is introduced.
+- SQLite stores the wishlist locally in the project database. The current product is intentionally single-user/local-first; the schema can gain a `user_id` column when authentication is introduced.
 - A five-minute in-memory cache plus a persistent SQLite cache reduces duplicate calls when users revisit a page or change their mind quickly. TMDB requests use bounded timeouts and retries.
 - The client ignores stale responses when a user changes filters quickly. Pagination is explicit via “Load more”, which preserves prior results and avoids rendering thousands of cards at once.
 
@@ -55,4 +55,4 @@ I would add authentication and per-user wishlists, a persistent cache (Redis), r
 
 ## AI assistance
 
-AI was used to help generate initial project boilerplate, reason through TMDB integration details, and troubleshoot implementation structure. The product flow, normalized API contract, caching/fallback strategy, persistence model, and UI behavior were selected for this project and are documented here for review.
+AI was used to help generate initial project boilerplate, reason through TMDB integration details, and troubleshoot implementation structure. The product flow, normalized API contract, caching strategy, persistence model, and UI behavior were selected for this project and are documented here for review.
