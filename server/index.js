@@ -107,6 +107,14 @@ async function tmdb(path, params = {}) {
   } catch (error) {
     lastError = error;
   }
+  if (process.platform === 'win32') {
+    try {
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 -Uri $env:TMDB_REQUEST_URL; $r.Content'], { env: { ...process.env, TMDB_REQUEST_URL: url.toString() }, timeout: 18000, maxBuffer: 8 * 1024 * 1024 });
+      return JSON.parse(stdout);
+    } catch (error) {
+      lastError = error;
+    }
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
