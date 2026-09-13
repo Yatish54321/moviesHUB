@@ -5,10 +5,13 @@ import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+const execFileAsync = promisify(execFile);
 const db = new Database('screenatlas.sqlite');
 db.pragma('journal_mode = WAL');
 db.exec(`CREATE TABLE IF NOT EXISTS wishlist (
@@ -97,7 +100,14 @@ async function tmdb(path, params = {}) {
   url.searchParams.set('api_key', process.env.TMDB_API_KEY);
   Object.entries(params).forEach(([key, value]) => value !== undefined && url.searchParams.set(key, value));
   let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  try {
+    const curlBinary = process.platform === 'win32' ? 'curl.exe' : 'curl';
+    const { stdout } = await execFileAsync(curlBinary, ['--http1.1', '--tlsv1.2', '--fail-with-body', '--silent', '--show-error', '--max-time', '12', url.toString()], { timeout: 15000, maxBuffer: 8 * 1024 * 1024 });
+    return JSON.parse(stdout);
+  } catch (error) {
+    lastError = error;
+  }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!response.ok) throw new Error(`TMDB returned ${response.status}`);
