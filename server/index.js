@@ -3,9 +3,12 @@ import express from 'express';
 import cors from 'cors';
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database('screenatlas.sqlite');
 db.pragma('journal_mode = WAL');
 db.exec(`CREATE TABLE IF NOT EXISTS wishlist (
@@ -129,5 +132,6 @@ app.post('/api/wishlist', (req, res) => {
 app.delete('/api/wishlist/:id', (req, res) => { db.prepare('DELETE FROM wishlist WHERE movie_id = ?').run(Number(req.params.id)); res.status(204).end(); });
 
 app.get('/api/health', (req, res) => res.json({ ok: true, configured: Boolean(process.env.TMDB_API_KEY), cacheEntries: cache.size }));
+app.use(express.static(path.resolve(projectRoot, '..', 'dist')));
+app.get('*', (req, res, next) => req.path.startsWith('/api/') ? next() : res.sendFile(path.resolve(projectRoot, '..', 'dist', 'index.html')));
 app.listen(port, () => console.log(`ScreenAtlas API listening on http://localhost:${port}`));
-
