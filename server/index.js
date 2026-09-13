@@ -43,7 +43,9 @@ const fallbackMovies = [
   { id: 9, title: 'The Dark Knight', overview: 'A masked vigilante faces a criminal mastermind who plunges a city into a deeper fight for its soul.', posterUrl: 'https://images.unsplash.com/photo-1509347528160-9329df50e2e5?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1509347528160-9329df50e2e5?w=1600&q=85', releaseDate: '2008-07-18', rating: 9.0, genres: ['Action', 'Crime', 'Drama', 'Thriller'], runtime: 152 },
   { id: 10, title: 'Interstellar', overview: 'Explorers travel through a wormhole in space in an attempt to ensure humanity’s survival.', posterUrl: 'https://images.unsplash.com/photo-1446776877081-d282a0f896e2?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1446776877081-d282a0f896e2?w=1600&q=85', releaseDate: '2014-11-07', rating: 8.7, genres: ['Adventure', 'Drama', 'Sci-Fi'], runtime: 169 },
   { id: 11, title: 'The Grand Budapest Hotel', overview: 'A legendary concierge and his young lobby boy become partners in a race across a changing Europe.', posterUrl: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1600&q=85', releaseDate: '2014-03-28', rating: 8.1, genres: ['Comedy', 'Drama'], runtime: 100 },
-  { id: 12, title: 'Get Out', overview: 'A young man visits his girlfriend’s family estate and uncovers a disturbing secret.', posterUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?w=1600&q=85', releaseDate: '2017-02-24', rating: 7.7, genres: ['Horror', 'Mystery', 'Thriller'], runtime: 104 }
+  { id: 12, title: 'Get Out', overview: 'A young man visits his girlfriend’s family estate and uncovers a disturbing secret.', posterUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?w=1600&q=85', releaseDate: '2017-02-24', rating: 7.7, genres: ['Horror', 'Mystery', 'Thriller'], runtime: 104, searchTerms: ['jordan peele', 'daniel kaluuya', 'allison williams'] },
+  { id: 13, title: 'Spider-Man: No Way Home', overview: 'Spider-Man’s identity is revealed, bringing his most dangerous foes back into his world.', posterUrl: 'https://images.unsplash.com/photo-1635805737707-575885ab0820?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1635805737707-575885ab0820?w=1600&q=85', releaseDate: '2021-12-17', rating: 8.2, genres: ['Action', 'Adventure', 'Sci-Fi'], runtime: 148, searchTerms: ['spider', 'spider man', 'tom holland', 'zendaya', 'jon watts', 'marvel', 'superhero'] },
+  { id: 14, title: 'The Amazing Spider-Man', overview: 'A teenage outcast discovers a secret about his family and becomes the hero he was meant to be.', posterUrl: 'https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=600&q=85', backdropUrl: 'https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=1600&q=85', releaseDate: '2012-07-03', rating: 7.0, genres: ['Action', 'Adventure', 'Sci-Fi'], runtime: 136, searchTerms: ['spider', 'spider man', 'andrew garfield', 'emma stone', 'marc webb', 'marvel'] }
 ];
 
 const genreMap = { 28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family', 14: 'Fantasy', 36: 'History', 27: 'Horror', 10402: 'Music', 9648: 'Mystery', 10749: 'Romance', 878: 'Sci-Fi', 53: 'Thriller', 10752: 'War', 37: 'Western' };
@@ -68,7 +70,7 @@ function normalize(movie, detail = false) {
 function getFallback(query = '', sort = 'popular', genre = '') {
   const genreName = genreMap[Number(genre)] || '';
   let items = fallbackMovies.filter(movie => {
-    const matchesQuery = !query || `${movie.title} ${movie.genres.join(' ')}`.toLowerCase().includes(query.toLowerCase());
+    const matchesQuery = !query || `${movie.title} ${movie.genres.join(' ')} ${(movie.searchTerms || []).join(' ')}`.toLowerCase().includes(query.toLowerCase());
     const matchesGenre = !genreName || movie.genres.includes(genreName);
     return matchesQuery && matchesGenre;
   });
@@ -121,8 +123,29 @@ app.get('/api/search', async (req, res) => {
   const page = Math.max(1, Number(req.query.page || 1));
   if (!query) return res.json({ movies: [], page: 1, totalPages: 0, source: 'local' });
   try {
-    const data = await cached(`search:${query.toLowerCase()}:${page}`, () => tmdb('/search/movie', { query, page, include_adult: 'false' }));
+    const data = await cached(`search:${query.toLowerCase()}:${page}`, async () => {
+      const movieSearch = await tmdb('/search/movie', { query, page, include_adult: 'false' });
+      if (!movieSearch) return null;
+      const combined = [...(movieSearch.results || [])];
+      const genreId = Object.entries(genreMap).find(([, name]) => name.toLowerCase() === query.toLowerCase())?.[0];
+      if (genreId) {
+        const genreSearch = await tmdb('/discover/movie', { with_genres: genreId, sort_by: 'popularity.desc', page, include_adult: 'false' });
+        combined.push(...(genreSearch?.results || []));
+      }
+      const multi = await tmdb('/search/multi', { query, page, include_adult: 'false' });
+      const people = (multi?.results || []).filter(item => item.media_type === 'person').slice(0, 2);
+      for (const person of people) {
+        const personMovies = await tmdb('/discover/movie', { with_people: person.id, sort_by: 'popularity.desc', page, include_adult: 'false' });
+        combined.push(...(personMovies?.results || []));
+      }
+      const unique = [...new Map(combined.filter(item => item?.id).map(item => [item.id, item])).values()];
+      return { page: movieSearch.page || page, total_pages: Math.max(movieSearch.total_pages || 1, multi?.total_pages || 1), results: unique };
+    });
     if (!data) return res.json({ movies: getFallback(query), page: 1, totalPages: 1, source: 'fallback' });
+    if (!data.results?.length) {
+      const fallback = getFallback(query);
+      if (fallback.length) return res.json({ movies: fallback, page: 1, totalPages: 1, source: 'fallback', warning: 'No live titles matched, so we added local matches.' });
+    }
     const movies = data.results.map(normalize);
     movies.forEach(movie => movieIndex.set(movie.id, movie));
     res.json({ movies, page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
