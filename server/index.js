@@ -58,8 +58,13 @@ function normalize(movie, detail = false) {
   };
 }
 
-function getFallback(query = '', sort = 'popular') {
-  let items = fallbackMovies.filter(movie => !query || `${movie.title} ${movie.genres.join(' ')}`.toLowerCase().includes(query.toLowerCase()));
+function getFallback(query = '', sort = 'popular', genre = '') {
+  const genreName = genreMap[Number(genre)] || '';
+  let items = fallbackMovies.filter(movie => {
+    const matchesQuery = !query || `${movie.title} ${movie.genres.join(' ')}`.toLowerCase().includes(query.toLowerCase());
+    const matchesGenre = !genreName || movie.genres.includes(genreName);
+    return matchesQuery && matchesGenre;
+  });
   if (sort === 'rating') items = [...items].sort((a, b) => b.rating - a.rating);
   if (sort === 'newest') items = [...items].sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''));
   return items;
@@ -89,10 +94,10 @@ app.get('/api/discover', async (req, res) => {
   const genre = req.query.genre || '';
   try {
     const data = await cached(`discover:${page}:${sort}:${genre}`, () => tmdb('/discover/movie', { page, sort_by: sort === 'rating' ? 'vote_average.desc' : sort === 'newest' ? 'primary_release_date.desc' : 'popularity.desc', 'vote_count.gte': sort === 'rating' ? 200 : 0, with_genres: genre || undefined, include_adult: 'false' }));
-    if (!data) return res.json({ movies: getFallback('', sort), page: 1, totalPages: 1, source: 'fallback' });
+    if (!data) return res.json({ movies: getFallback('', sort, genre), page: 1, totalPages: 1, source: 'fallback' });
     res.json({ movies: data.results.map(normalize), page: data.page, totalPages: Math.min(data.total_pages, 500), source: 'tmdb' });
   } catch (error) {
-    res.status(200).json({ movies: getFallback('', sort), page: 1, totalPages: 1, source: 'fallback', warning: 'Movie service is temporarily unavailable. Showing a curated selection.' });
+    res.status(200).json({ movies: getFallback('', sort, genre), page: 1, totalPages: 1, source: 'fallback', warning: 'Movie service is temporarily unavailable. Showing a curated selection.' });
   }
 });
 
