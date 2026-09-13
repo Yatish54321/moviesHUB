@@ -21,6 +21,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS wishlist (
   genres TEXT,
   added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS movie_cache (
+  cache_key TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+)`);
 
 app.use(cors());
 app.use(express.json());
@@ -91,16 +96,33 @@ async function tmdb(path, params = {}) {
   const url = new URL(`${TMDB_BASE}${path}`);
   url.searchParams.set('api_key', process.env.TMDB_API_KEY);
   Object.entries(params).forEach(([key, value]) => value !== undefined && url.searchParams.set(key, value));
-  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  if (!response.ok) throw new Error(`TMDB returned ${response.status}`);
-  return response.json();
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) throw new Error(`TMDB returned ${response.status}`);
+      return response.json();
+    } catch (error) {
+      lastError = error;
+      if (error.message?.includes('TMDB returned 401') || error.message?.includes('TMDB returned 404')) break;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 async function cached(key, loader) {
   const current = cache.get(key);
   if (current && current.expires > Date.now()) return current.value;
+  const stored = db.prepare('SELECT payload, expires_at FROM movie_cache WHERE cache_key = ?').get(key);
+  if (stored && stored.expires_at > Date.now()) {
+    const value = JSON.parse(stored.payload);
+    cache.set(key, { value, expires: stored.expires_at });
+    return value;
+  }
   const value = await loader();
   cache.set(key, { value, expires: Date.now() + CACHE_TTL });
+  if (value) db.prepare('INSERT OR REPLACE INTO movie_cache (cache_key, payload, expires_at) VALUES (?, ?, ?)').run(key, JSON.stringify(value), Date.now() + CACHE_TTL);
   return value;
 }
 
